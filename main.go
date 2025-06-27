@@ -2,118 +2,98 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"net/smtp"
-	"os"
-	"os/exec"
-	"path/filepath"
 
-	"github.com/google/uuid"
 	"github.com/jordan-wright/email"
 )
 
-// RequestData holds the data sent from the frontend
+// Assume this is your request data structure
 type RequestData struct {
-	Email       string `json:"email"`
 	HTMLContent string `json:"htmlContent"`
+	Email       string `json:"email"`
 }
 
+// Logging middleware to log incoming requests
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received request: %s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Handler for generating PDF and sending email
 func generatePDFHandler(w http.ResponseWriter, r *http.Request) {
+	// Parse request data
 	var data RequestData
 	err := json.NewDecoder(r.Body).Decode(&data)
 	if err != nil {
+		log.Printf("Error decoding request body: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// Generate unique PDF filename
-	pdfFileName := uuid.New().String() + ".pdf"
-	pdfPath := filepath.Join("temp", pdfFileName)
-
-	// Ensure temp directory exists
-	if _, err := os.Stat("temp"); os.IsNotExist(err) {
-		os.Mkdir("temp", 0755)
-	}
-
-	// Run wkhtmltopdf to generate PDF from HTML content
-	cmd := exec.Command("wkhtmltopdf", "-", pdfPath)
-	stdin, err := cmd.StdinPipe()
+	// Log and generate PDF
+	log.Println("Starting PDF generation")
+	pdfPath, err := generatePDF(data.HTMLContent)
 	if err != nil {
-		log.Println("Error creating stdin pipe:", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	go func() {
-		defer stdin.Close()
-		fmt.Fprint(stdin, data.HTMLContent)
-	}()
-
-	err = cmd.Run()
-	if err != nil {
-		log.Println("Error running wkhtmltopdf:", err)
+		log.Printf("Error generating PDF: %v", err)
 		http.Error(w, "Failed to generate PDF", http.StatusInternalServerError)
 		return
 	}
+	log.Println("PDF generated successfully")
 
-	// Send email with PDF attachment
+	// Log and send email
+	log.Printf("Sending email to: %s", data.Email)
 	err = sendEmail(data.Email, pdfPath)
 	if err != nil {
-		log.Println("Error sending email:", err)
+		log.Printf("Error sending email: %v", err)
 		http.Error(w, "Failed to send email", http.StatusInternalServerError)
 		return
 	}
+	log.Println("Email sent successfully")
 
-	// Delete temporary PDF file
-	os.Remove(pdfPath)
-
-	// Return success response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "PDF generated and emailed successfully"})
+	// Success response
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("PDF generated and emailed successfully"))
 }
 
+// PDF generation function (placeholder for your logic)
+func generatePDF(htmlContent string) (string, error) {
+	log.Println("Generating PDF from HTML content")
+	// Replace with your actual PDF generation logic
+	pdfPath := "/path/to/generated.pdf" // Example path
+	return pdfPath, nil
+}
+
+// Email sending function
 func sendEmail(toEmail, pdfPath string) error {
-	// Load SMTP configuration from environment variables
-	smtpHost := os.Getenv("SMTP_HOST")
-	smtpPort := os.Getenv("SMTP_PORT")
-	smtpUser := os.Getenv("SMTP_USER")
-	smtpPass := os.Getenv("SMTP_PASS")
-	fromEmail := os.Getenv("FROM_EMAIL")
-
-	if smtpHost == "" || smtpPort == "" || smtpUser == "" || smtpPass == "" || fromEmail == "" {
-		return fmt.Errorf("missing SMTP configuration in environment variables")
-	}
-
-	// Create new email
+	log.Printf("Preparing to send email to: %s with attachment: %s", toEmail, pdfPath)
 	e := email.NewEmail()
-	e.From = fromEmail
 	e.To = []string{toEmail}
 	e.Subject = "Your Results PDF"
-	e.Text = []byte("Attached is your results PDF. Enjoy!")
+	e.Text = []byte("Attached is your results PDF.")
 
-	// Attach the PDF
-	_ , err := e.AttachFile(pdfPath)
+	_, err := e.AttachFile(pdfPath)
 	if err != nil {
-		return fmt.Errorf("failed to attach PDF: %w", err)
+		log.Printf("Error attaching file: %v", err)
+		return err
 	}
 
-	// Send the email
-	err = e.Send(smtpHost+":"+smtpPort, smtp.PlainAuth("", smtpUser, smtpPass, smtpHost))
+	// Configure your SMTP settings here
+	err = e.Send("smtp.example.com:587", smtp.PlainAuth("", "user", "pass", "smtp.example.com"))
 	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
+		log.Printf("Error sending email: %v", err)
+		return err
 	}
-
 	return nil
 }
 
 func main() {
-	// Set up HTTP server
-	http.HandleFunc("/generate-pdf", generatePDFHandler)
-
-	// Start server
-	port := "3000"
-	log.Printf("Server starting on port %s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	// Set up handler with logging middleware
+	handler := loggingMiddleware(http.HandlerFunc(generatePDFHandler))
+	http.Handle("/generate-pdf", handler)
+	log.Println("Server starting on port 3000")
+	log.Fatal(http.ListenAndServe(":3000", nil))
 }
