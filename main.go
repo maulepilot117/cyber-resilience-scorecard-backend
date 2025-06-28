@@ -9,119 +9,145 @@ import (
 	"github.com/jordan-wright/email"
 )
 
-// Updated RequestData with all required fields
+// Recommendation struct to match the JavaScript object structure
+type Recommendation struct {
+	Category string `json:"category"`
+	Question string `json:"question"`
+	Text     string `json:"text"`
+	Status   string `json:"status"`
+}
+
+// CategoryScore struct to match the JavaScript categoryScore structure
+type CategoryScore struct {
+	Name       string  `json:"name"`
+	Score      float64 `json:"score"`
+	Max        float64 `json:"max"`
+	Percentage float64 `json:"percentage"`
+}
+
+// Updated RequestData with proper types matching the frontend
 type RequestData struct {
-    HTMLContent    string   `json:"htmlContent"`
-    Email          string   `json:"email"`
-    Score          int      `json:"score"`
-    CategoryScores []int    `json:"categoryScores"`
-    Recommendations []string `json:"recommendations"`
+	HTMLContent    string           `json:"htmlContent"`
+	Email          string           `json:"email"`
+	Score          int              `json:"score"`
+	CategoryScores []CategoryScore  `json:"categoryScore"`    // Note: frontend sends "categoryScore" not "categoryScores"
+	Recommendations []Recommendation `json:"recommendations"`
 }
 
 // Logging middleware to log incoming requests
 func loggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        log.Printf("Received request: %s %s", r.Method, r.URL.Path)
-        next.ServeHTTP(w, r)
-    })
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received request: %s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func enableCors(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Access-Control-Allow-Origin", "*") // Adjust for production
-        w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-        if r.Method == "OPTIONS" {
-            w.WriteHeader(http.StatusOK)
-            return
-        }
-        next.ServeHTTP(w, r)
-    })
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Adjust for production
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Handler for generating PDF and sending email
 func generatePDFHandler(w http.ResponseWriter, r *http.Request) {
-    // Use RequestData
-    var data RequestData
+	// Use RequestData
+	var data RequestData
 
-    // Log the request details for debugging
-    log.Printf("Request method: %s, Content-Length: %d", r.Method, r.ContentLength)
+	// Log the request details for debugging
+	log.Printf("Request method: %s, Content-Length: %d", r.Method, r.ContentLength)
 
-    // Check if the body is empty
-    if r.ContentLength == 0 {
-        log.Println("Request body is empty")
-        http.Error(w, "Request body is empty", http.StatusBadRequest)
-        return
-    }
+	// Check if the body is empty
+	if r.ContentLength == 0 {
+		log.Println("Request body is empty")
+		http.Error(w, "Request body is empty", http.StatusBadRequest)
+		return
+	}
 
-    // Decode the request body
-    err := json.NewDecoder(r.Body).Decode(&data)
-    if err != nil {
-        log.Printf("Error decoding request body: %v", err)
-        http.Error(w, "Error decoding request body", http.StatusBadRequest)
-        return
-    }
+	// Decode the request body
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		log.Printf("Error decoding request body: %v", err)
+		http.Error(w, "Error decoding request body", http.StatusBadRequest)
+		return
+	}
 
-    // Log and generate PDF
-    log.Println("Starting PDF generation")
-    pdfPath, err := generatePDF(data.HTMLContent)
-    if err != nil {
-        log.Printf("Error generating PDF: %v", err)
-        http.Error(w, "Failed to generate PDF", http.StatusInternalServerError)
-        return
-    }
-    log.Println("PDF generated successfully")
+	// Log the received data for debugging
+	log.Printf("Received data - Email: %s, Score: %d", data.Email, data.Score)
+	log.Printf("Number of recommendations: %d", len(data.Recommendations))
+	log.Printf("Number of category scores: %d", len(data.CategoryScores))
 
-    // Log and send email
-    log.Printf("Sending email to: %s", data.Email)
-    err = sendEmail(data.Email, pdfPath)
-    if err != nil {
-        log.Printf("Error sending email: %v", err)
-        http.Error(w, "Failed to send email", http.StatusInternalServerError)
-        return
-    }
-    log.Println("Email sent successfully")
+	// Log and generate PDF
+	log.Println("Starting PDF generation")
+	pdfPath, err := generatePDF(data)
+	if err != nil {
+		log.Printf("Error generating PDF: %v", err)
+		http.Error(w, "Failed to generate PDF", http.StatusInternalServerError)
+		return
+	}
+	log.Println("PDF generated successfully")
 
-    // Success response
-    w.WriteHeader(http.StatusOK)
-    w.Write([]byte("PDF generated and emailed successfully"))
+	// Log and send email
+	log.Printf("Sending email to: %s", data.Email)
+	err = sendEmail(data.Email, pdfPath)
+	if err != nil {
+		log.Printf("Error sending email: %v", err)
+		http.Error(w, "Failed to send email", http.StatusInternalServerError)
+		return
+	}
+	log.Println("Email sent successfully")
+
+	// Success response - send JSON response instead of plain text
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := map[string]string{
+		"message": "PDF generated and emailed successfully",
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
-// PDF generation function (placeholder for your logic)
-func generatePDF(htmlContent string) (string, error) {
-    log.Println("Generating PDF from HTML content")
-    // Replace with your actual PDF generation logic
-    pdfPath := "/path/to/generated.pdf" // Example path
-    return pdfPath, nil
-}
+// Note: generatePDF function is now in pdf_generator.go
 
 // Email sending function
 func sendEmail(toEmail, pdfPath string) error {
-    log.Printf("Preparing to send email to: %s with attachment: %s", toEmail, pdfPath)
-    e := email.NewEmail()
-    e.To = []string{toEmail}
-    e.Subject = "Your Results PDF"
-    e.Text = []byte("Attached is your results PDF.")
+	log.Printf("Preparing to send email to: %s with attachment: %s", toEmail, pdfPath)
+	e := email.NewEmail()
+	e.From = "your-email@example.com" // Add your sender email
+	e.To = []string{toEmail}
+	e.Subject = "Your Cyber Resilience Scorecard Results"
+	e.Text = []byte("Please find attached your Cyber Resilience Scorecard results.")
+	e.HTML = []byte(`
+		<h2>Your Cyber Resilience Scorecard Results</h2>
+		<p>Thank you for completing the assessment. Your detailed results are attached as a PDF.</p>
+		<p>If you have any questions, please don't hesitate to contact us.</p>
+	`)
 
-    _, err := e.AttachFile(pdfPath)
-    if err != nil {
-        log.Printf("Error attaching file: %v", err)
-        return err
-    }
+	_, err := e.AttachFile(pdfPath)
+	if err != nil {
+		log.Printf("Error attaching file: %v", err)
+		return err
+	}
 
-    // Configure your SMTP settings here
-    err = e.Send("smtp.example.com:587", smtp.PlainAuth("", "user", "pass", "smtp.example.com"))
-    if err != nil {
-        log.Printf("Error sending email: %v", err)
-        return err
-    }
-    return nil
+	// Configure your SMTP settings here
+	// TODO: Replace with your actual SMTP configuration
+	err = e.Send("smtp.example.com:587", smtp.PlainAuth("", "user", "pass", "smtp.example.com"))
+	if err != nil {
+		log.Printf("Error sending email: %v", err)
+		return err
+	}
+	return nil
 }
 
 func main() {
-    // Set up handler with logging middleware
-    handler := loggingMiddleware(http.HandlerFunc(generatePDFHandler))
-    http.Handle("/generate-pdf", enableCors(handler))
-    log.Println("Server starting on port 3000")
-    log.Fatal(http.ListenAndServe(":3000", nil))
+	// Set up handler with logging middleware
+	handler := loggingMiddleware(http.HandlerFunc(generatePDFHandler))
+	http.Handle("/generate-pdf", enableCors(handler))
+	log.Println("Server starting on port 3000")
+	log.Fatal(http.ListenAndServe(":3000", nil))
 }
