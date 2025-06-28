@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/smtp"
+	"os"
+	"strconv"
 
 	"github.com/jordan-wright/email"
 )
@@ -112,13 +115,56 @@ func generatePDFHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// Note: generatePDF function is now in pdf_generator.go
+// SMTP configuration from environment variables
+type SMTPConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Pass     string
+	FromEmail string
+}
+
+// loadSMTPConfig loads SMTP configuration from environment variables
+func loadSMTPConfig() (*SMTPConfig, error) {
+	config := &SMTPConfig{
+		Host:     os.Getenv("SMTP_HOST"),
+		User:     os.Getenv("SMTP_USER"),
+		Pass:     os.Getenv("SMTP_PASS"),
+		FromEmail: os.Getenv("FROM_EMAIL"),
+	}
+
+	// Validate required fields
+	if config.Host == "" {
+		return nil, fmt.Errorf("SMTP_HOST environment variable is required")
+	}
+	if config.FromEmail == "" {
+		return nil, fmt.Errorf("FROM_EMAIL environment variable is required")
+	}
+
+	// Parse port with default
+	portStr := os.Getenv("SMTP_PORT")
+	if portStr == "" {
+		config.Port = 587 // Default SMTP port for TLS
+	} else {
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SMTP_PORT: %v", err)
+		}
+		config.Port = port
+	}
+
+	log.Printf("SMTP configured: host=%s, port=%d, from=%s", config.Host, config.Port, config.FromEmail)
+	return config, nil
+}
+
+// Global SMTP configuration
+var smtpConfig *SMTPConfig
 
 // Email sending function
 func sendEmail(toEmail, pdfPath string) error {
 	log.Printf("Preparing to send email to: %s with attachment: %s", toEmail, pdfPath)
 	e := email.NewEmail()
-	e.From = "your-email@example.com" // Add your sender email
+	e.From = smtpConfig.FromEmail
 	e.To = []string{toEmail}
 	e.Subject = "Your Cyber Resilience Scorecard Results"
 	e.Text = []byte("Please find attached your Cyber Resilience Scorecard results.")
@@ -134,20 +180,41 @@ func sendEmail(toEmail, pdfPath string) error {
 		return err
 	}
 
-	// Configure your SMTP settings here
-	// TODO: Replace with your actual SMTP configuration
-	err = e.Send("smtp.example.com:587", smtp.PlainAuth("", "user", "pass", "smtp.example.com"))
+	// Create SMTP auth
+	var auth smtp.Auth
+	if smtpConfig.User != "" && smtpConfig.Pass != "" {
+		auth = smtp.PlainAuth("", smtpConfig.User, smtpConfig.Pass, smtpConfig.Host)
+	}
+
+	// Send email
+	addr := fmt.Sprintf("%s:%d", smtpConfig.Host, smtpConfig.Port)
+	err = e.Send(addr, auth)
 	if err != nil {
 		log.Printf("Error sending email: %v", err)
 		return err
 	}
+	
+	log.Printf("Email sent successfully to %s", toEmail)
 	return nil
 }
 
 func main() {
+	// Load SMTP configuration
+	var err error
+	smtpConfig, err = loadSMTPConfig()
+	if err != nil {
+		log.Fatalf("Failed to load SMTP configuration: %v", err)
+	}
+
 	// Set up handler with logging middleware
 	handler := loggingMiddleware(http.HandlerFunc(generatePDFHandler))
 	http.Handle("/generate-pdf", enableCors(handler))
-	log.Println("Server starting on port 3000")
-	log.Fatal(http.ListenAndServe(":3000", nil))
+	
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+	
+	log.Printf("Server starting on port %s", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
