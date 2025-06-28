@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   cyber-resilience-api:
     build: .
@@ -9,8 +7,8 @@ services:
       # SMTP Configuration
       SMTP_HOST: smtp.mailersend.net # Example: smtp.gmail.com, smtp.sendgrid.net
       SMTP_PORT: 587 # 587 for TLS, 465 for SSL, 25 for unencrypted
-      SMTP_USER: SMTP_USER=MS_43tG37@test-r9084zvddp8gw63d.mlsender.net # Your SMTP username
-      SMTP_PASS: mssp.gv9izTL.yzkq3403ep24d796.RNEmMBQ # Your SMTP password or app password
+      SMTP_USER: MS_F2pHKB@stwlfrm.monster # Your SMTP username
+      SMTP_PASS: mssp.hwizh9I.k68zxl237q5gj905.4hAhhAe # Your SMTP password or app password
       FROM_EMAIL: cwhite@stwlfrm.monster # The email address that appears in "From"
 
       # Optional: Port configuration
