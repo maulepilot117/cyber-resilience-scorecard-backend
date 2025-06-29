@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/smtp"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/jordan-wright/email"
 )
@@ -124,12 +126,38 @@ type SMTPConfig struct {
 	FromEmail string
 }
 
-// loadSMTPConfig loads SMTP configuration from environment variables
+// readSecretFromFile reads a secret from a file path specified in an environment variable
+func readSecretFromFile(envVar string) (string, error) {
+	// Check if the file path environment variable exists
+	filePath := os.Getenv(envVar)
+	if filePath == "" {
+		// Fall back to direct environment variable if file path not specified
+		// This allows backward compatibility with non-secret deployments
+		directVar := strings.TrimSuffix(envVar, "_FILE")
+		directValue := os.Getenv(directVar)
+		if directValue != "" {
+			log.Printf("Using direct environment variable %s (no secret file)", directVar)
+			return directValue, nil
+		}
+		return "", fmt.Errorf("neither %s nor %s environment variable is set", envVar, directVar)
+	}
+
+	// Read the secret from the file
+	content, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("error reading secret from %s: %v", filePath, err)
+	}
+
+	// Trim any whitespace/newlines
+	secret := strings.TrimSpace(string(content))
+	log.Printf("Successfully read secret from file: %s", filePath)
+	return secret, nil
+}
+
+// loadSMTPConfig loads SMTP configuration from environment variables and secret files
 func loadSMTPConfig() (*SMTPConfig, error) {
 	config := &SMTPConfig{
 		Host:     os.Getenv("SMTP_HOST"),
-		User:     os.Getenv("SMTP_USER"),
-		Pass:     os.Getenv("SMTP_PASS"),
 		FromEmail: os.Getenv("FROM_EMAIL"),
 	}
 
@@ -140,6 +168,20 @@ func loadSMTPConfig() (*SMTPConfig, error) {
 	if config.FromEmail == "" {
 		return nil, fmt.Errorf("FROM_EMAIL environment variable is required")
 	}
+
+	// Read SMTP user from secret file
+	smtpUser, err := readSecretFromFile("SMTP_USER_FILE")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read SMTP user: %v", err)
+	}
+	config.User = smtpUser
+
+	// Read SMTP password from secret file
+	smtpPass, err := readSecretFromFile("SMTP_PASS_FILE")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read SMTP password: %v", err)
+	}
+	config.Pass = smtpPass
 
 	// Parse port with default
 	portStr := os.Getenv("SMTP_PORT")
@@ -153,7 +195,8 @@ func loadSMTPConfig() (*SMTPConfig, error) {
 		config.Port = port
 	}
 
-	log.Printf("SMTP configured: host=%s, port=%d, from=%s", config.Host, config.Port, config.FromEmail)
+	log.Printf("SMTP configured: host=%s, port=%d, from=%s, user=%s", 
+		config.Host, config.Port, config.FromEmail, config.User)
 	return config, nil
 }
 
