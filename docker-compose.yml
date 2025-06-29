@@ -5,10 +5,9 @@ services:
       - "3000:3000"
     environment:
       # SMTP Configuration
-      SMTP_HOST: smtp.mailersend.net # Example: smtp.gmail.com, smtp.sendgrid.net
+      SMTP_HOST: smtp.protonmail.ch # Example: smtp.gmail.com, smtp.sendgrid.net
       SMTP_PORT: 587 # 587 for TLS, 465 for SSL, 25 for unencrypted
-      SMTP_USER: MS_F2pHKB@stwlfrm.monster # Your SMTP username
-      FROM_EMAIL: cwhite@stwlfrm.monster # The email address that appears in "From"
+      FROM_EMAIL: no-reply@stwlfrm.monster # The email address that appears in "From"
 
       # Optional: Port configuration
       PORT: 3000
